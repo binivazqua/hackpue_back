@@ -1,0 +1,9 @@
+# MERGES FASTAPI WITH MONGO DB
+
+fastapi 
+uvicorn
+motor
+pydantic
+APScheduler
+feedparser
+python-dotenv
