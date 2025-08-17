@@ -5,15 +5,16 @@ from datetime import datetime
 import hashlib
 import feedparser
 from typing import Dict, Any, List
+# CHECK THIS ONE LATER
+import time
+from datetime import datetime
 
-def to_object_id(data: str) -> ObjectId:
-    """
-    Convert any other type of data (str) to ObjectId for MongoDB PROCESSINNNG
-    """
-    try:
-        return ObjectId(data)
-    except Exception: 
+
+def to_object_id(id_str: str) -> ObjectId:
+    if not ObjectId.is_valid(id_str):
         raise HTTPException(status_code=400, detail="Invalid ObjectId")
+    return ObjectId(id_str)
+
 
 
 
@@ -35,7 +36,7 @@ def parse_rss(name: str, url: str) -> list[dict]:
         for entry in art.entries:
             # Procesar cada entrada del feed RSS
             # Usamos .get() porque al final son objetos -> opcionales
-            print(list(entry.keys()))
+            #print(list(entry.keys()))
             source = name
             link = entry.get("link", "")
             title = entry.get("title", "")
@@ -84,9 +85,7 @@ def compute_hash(source: dict, url: str, title: str) -> str:
     return hashlib.sha256(f"{source}-{url}-{title}".encode("utf-8")).hexdigest()
 
 
-# CHECK THIS ONE LATER
-import time
-from datetime import datetime
+
 
 def to_datetime_utc(published_raw, published_str: str | None):
     if published_raw:
@@ -110,6 +109,10 @@ def to_datetime_utc(published_raw, published_str: str | None):
             return None
     return None
         
+from datetime import datetime, timezone
+
+
+
 
 
 def guess_category(title: str, summary_text: str) -> str:
@@ -175,7 +178,7 @@ def normalize_many(raw_entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     out = []
     for entry in raw_entries:
         try:
-            if not entry.get("link") or not entry.get("title"):
+            if not entry.get("link") or not entry.get("title"): # DO NOT ALTER THIS LINE
                 continue
             normalized = normalize_entry(entry)
             out.append(normalized)
