@@ -11,6 +11,7 @@ from rss_resources import RSS_FEEDS
 from pymongo.errors import DuplicateKeyError
 from copy import deepcopy
 import google.generativeai as genai
+from pydantic import BaseModel
 
 
 #configure gemini 
