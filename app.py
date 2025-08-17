@@ -14,6 +14,11 @@ from copy import deepcopy
 import google.generativeai as genai
 from pydantic import BaseModel
 from gemini import gemini_process_articles
+from fastapi import BackgroundTasks
+
+
+##### KILL ######## pkill -f "uvicorn app:app"
+
 
 # loads the dotenv data
 load_dotenv()
@@ -238,3 +243,21 @@ async def process_article_auto(item_id: str, _auth=Depends(require_api_key)):
         raise HTTPException(status_code=404, detail="COULD NOT MODIFY ITEM. IT HAS BEEN ALREADY PROCESSED!!!")
 
     return {"ok": True, "id": item_id}
+
+@app.post("/sync")
+async def sync_articles(background_tasks: BackgroundTasks, limit: int = 10, api_key: str = Query(...)):
+    """
+    Sincroniza los artículos: ingesta, obtiene el queue y procesa cada artículo automáticamente.
+    """
+    # 1. Ingesta los artículos
+    await ingest_run(limit=limit)
+
+    # 2. Obtiene el queue
+    queue_response = await get_queue(limit=limit, _auth=True)
+    queue = queue_response["queue"]
+
+    # 3. Procesa cada artículo en segundo plano
+    for item in queue:
+        background_tasks.add_task(process_article_auto, item["id"], _auth=True)
+
+    return {"status": "sync started", "queued": len(queue)}
