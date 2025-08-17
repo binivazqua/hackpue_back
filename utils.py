@@ -32,14 +32,16 @@ def parse_rss(name: str, url: str) -> list[dict]:
         for entry in art.entries:
             # Procesar cada entrada del feed RSS
             # Usamos .get() porque al final son objetos -> opcionales
+            print(list(entry.keys()))
             source = name
-            link = entry.link
+            link = entry.get("link", "")
             title = entry.get("title", "")
-            published = entry.get("published", "")
+            published_raw = entry.get("published") or entry.get("published_parsed")
+            
             summary = (
                 entry.get("summary", "")
-                or entry.get("description", "")
-                or entry.get("content", "")[0].get("value", "")  if entry.get("content") else None
+                or entry.get("summary_detail", "")
+                
             )
 
             # fallbacks
@@ -50,7 +52,7 @@ def parse_rss(name: str, url: str) -> list[dict]:
                 "source": source,
                 "link": link,
                 "title": title,
-                "published": published,
+                "published": published_raw,
                 "summary": summary
             })
 
@@ -66,3 +68,15 @@ def parse_rss(name: str, url: str) -> list[dict]:
 
 
 # normalizing: toma lo parseado y corre funciones de predicting, etc para categorizar y asignar los values fatantes de nuestro ItemModel
+def normalize_item(raw: dict) -> dict:
+    """
+    Normaliza un artículo crudo para que se ajuste a nuestro modelo de datos.
+    """
+    # Aquí puedes agregar lógica de normalización, como predecir categorías, etc.
+    normalized = {
+        "title": raw.get("title", "").strip(),
+        "link": raw.get("link", "").strip(),
+        "published": raw.get("published", "").strip(),
+        "summary": raw.get("summary", "").strip(),
+    }
+    return normalized
