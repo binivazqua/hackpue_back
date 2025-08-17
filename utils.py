@@ -4,7 +4,7 @@ from fastapi import HTTPException
 from datetime import datetime
 import hashlib
 import feedparser
-from typing import Dict, Any
+from typing import Dict, Any, List
 
 def to_object_id(data: str) -> ObjectId:
     """
@@ -167,3 +167,19 @@ def normalize_entry(raw: Dict[str, Any]) -> Dict[str, Any]:
     }
     return normalized
 
+def normalize_many(raw_entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Normaliza múltiples artículos parseados.
+    """
+
+    out = []
+    for entry in raw_entries:
+        try:
+            if not entry.get("link") or not entry.get("title"):
+                continue
+            normalized = normalize_entry(entry)
+            out.append(normalized)
+        except Exception as e:
+            # Manejar excepciones de normalización
+            print(f"Error normalizando entrada: {e}")
+    return out
