@@ -36,3 +36,12 @@ async def root():
 async def get_mongo_data():
     data = await coll.count_documents({})
     return {"data": data}
+
+# Parse RSS using feedparser wuuu
+
+
+
+# Normalize
+
+
+# Use hash 

@@ -44,8 +44,6 @@ class ItemForGemini(ItemBase):
     published: Optional[datetime] = None # No todos la traen
 
 
-# es un item base refinado
-
 
 # definir un modelo para lo que gemini procesa de vuelta
 class ItemOut(BaseModel):
