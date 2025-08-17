@@ -15,11 +15,10 @@ from pydantic import BaseModel
 
 
 #configure gemini 
-genai.configure(os.getenv("GEMINI_API_KEY"))
+#genai.configure(os.getenv("GEMINI_API_KEY"))
 
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+#GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
 
-# GEMINI unit
 
 
 # loads the dotenv data
@@ -149,6 +148,7 @@ async def get_queue(limit: int = 10, _auth=Depends(require_api_key)):
                 "published": item["published"],
                 "source": item["source"],
                 "category": item["category"],
+                "processed": False,
             })
     
     # Sort all items by published date (newest first)
@@ -187,7 +187,28 @@ async def get_queue_random(limit: int = 10, _auth=Depends(require_api_key)):
             "published": item["published"],
             "source": item["source"],
             "category": item["category"],
+            "processed": False,
         })
 
     return {"queue": items}
 
+
+
+####### INTEGRATE GEMINII #######
+
+# what is seen in the docs
+class ProcessAutoOut(BaseModel):
+    ok: bool
+    id: str 
+
+
+@app.post("/process/{item_id}/auto", response_model=ProcessAutoOut)
+async def process_article_auto(item_id: str, _auth=Depends(require_api_key)):
+    """
+     item_id: id en la db de MongoDB
+     usa nuestro gemini.py para generar el output deseado
+    """
+
+    o_id = ObjectId(item_id)        
+
+    item = await coll.find_one({"_id": o_id}, {"title":1,"url":1,"summary":1,"category":1})

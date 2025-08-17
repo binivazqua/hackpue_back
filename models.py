@@ -42,6 +42,7 @@ class ItemForGemini(ItemBase):
     summary: Optional[str] = None # puede ayudarle a gemini, O NO
     category: Category = "otros" # default init en "otros"
     published: Optional[datetime] = None # No todos la traen
+    
 
 
 
