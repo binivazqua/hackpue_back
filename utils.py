@@ -1,13 +1,14 @@
 from pymongo import MongoClient
+from pymongo import ASCENDING
 from bson.objectid import ObjectId
 from fastapi import HTTPException
-from datetime import datetime
+from datetime import datetime, timezone
 import hashlib
 import feedparser
 from typing import Dict, Any, List
 # CHECK THIS ONE LATER
 import time
-from datetime import datetime
+import re
 
 
 def to_object_id(id_str: str) -> ObjectId:
@@ -15,6 +16,18 @@ def to_object_id(id_str: str) -> ObjectId:
         raise HTTPException(status_code=400, detail="Invalid ObjectId")
     return ObjectId(id_str)
 
+# ensure not dedups:
+
+async def ensure_indexes(coll):
+    """
+    Crea índices necesarios en la colección:
+    - hash: único (para evitar duplicados)
+    - processed: para búsquedas rápidas de cola/digest
+    - published_at: para ordenar por fecha
+    """
+    await coll.create_index([("hash", ASCENDING)], unique=True)
+    await coll.create_index([("processed", ASCENDING)])
+    await coll.create_index([("published_at", ASCENDING)])
 
 
 
@@ -40,8 +53,9 @@ def parse_rss(name: str, url: str) -> list[dict]:
             source = name
             link = entry.get("link", "")
             title = entry.get("title", "")
-            published_raw = entry.get("published") or entry.get("published_parsed")
-            
+            published_str = entry.get("published", "")  # String format
+            published_parsed = entry.get("published_parsed")  # struct_time format
+
             summary = (
                 entry.get("summary", "")
                 or entry.get("summary_detail", "")
@@ -54,10 +68,11 @@ def parse_rss(name: str, url: str) -> list[dict]:
 
             items.append({
                 "source": source,
-                "link": link,
+                "url": link,
                 "title": title,
-                "published": published_raw,
-                "summary": summary
+                "published_raw": published_str,
+                "published_parsed": published_parsed,
+                "summary_raw": summary
             })
 
         return items
@@ -77,42 +92,82 @@ def parse_rss(name: str, url: str) -> list[dict]:
 
 ############### HELPERS ################
 
+def clean_text(text: str) -> str:
+    """
+    Limpia HTML tags, caracteres especiales y texto no deseado del contenido.
+    """
+    if not text:
+        return ""
+    
+    # Remover HTML tags
+    text = re.sub(r'<[^>]+>', '', text)
+    
+    # Remover "By BCP Staff" y variaciones
+    text = re.sub(r'By\s+BCP\s+Staff', '', text, flags=re.IGNORECASE)
+    
+    # Remover múltiples espacios en blanco y saltos de línea
+    text = re.sub(r'\s+', ' ', text)
+    
+    # Remover caracteres especiales al inicio y final
+    text = text.strip()
+    
+    return text
+
 def compute_hash(source: dict, url: str, title: str) -> str:
     """
     Computa un hash SHA-256 para un artículo dado.
     """
-    # Convertir el dict a un string y luego a bytes
-    return hashlib.sha256(f"{source}-{url}-{title}".encode("utf-8")).hexdigest()
+    base = f"{source}|{url}|{title}".encode()
+    return hashlib.sha256(base).hexdigest()
 
 
 
 
-def to_datetime_utc(published_raw, published_str: str | None):
+def to_datetime_utc(published_raw, published_str):
+    # Debug: agregar logging temporal
+    print(f"DEBUG - published_raw: {published_raw} (type: {type(published_raw)})")
+    print(f"DEBUG - published_str: {published_str} (type: {type(published_str)})")
+    
     if published_raw:
         # If it's a struct_time (from feedparser)
         if hasattr(published_raw, 'tm_year'):
             ts = time.mktime(published_raw)
-            return datetime.fromtimestamp(ts).astimezone(datetime.utc)
+            dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+            return dt.isoformat()  # Return as ISO string for JSON serialization
         # If it's already a number
         if isinstance(published_raw, (int, float)):
-            return datetime.fromtimestamp(published_raw).astimezone(datetime.utc)
-        # If it's a string, try to parse
-        if isinstance(published_raw, str):
-            try:
-                return datetime.strptime(published_raw, "%Y-%m-%d %H:%M:%S").astimezone(datetime.utc)
-            except ValueError:
-                return None
-    elif published_str:
-        try:
-            return datetime.strptime(published_str, "%Y-%m-%d %H:%M:%S").astimezone(datetime.utc)
-        except ValueError:
-            return None
+            dt = datetime.fromtimestamp(published_raw, tz=timezone.utc)
+            return dt.isoformat()  # Return as ISO string for JSON serialization
+        # If it's a string, try multiple date formats
+        if isinstance(published_raw, str) and published_raw.strip():
+            # Common RSS date formats
+            formats = [
+                "%B %d, %Y | %I:%M%p",       # July 22, 2025 | 7:47AM (FTC format)
+                "%a, %d %b %Y %H:%M:%S %z",  # RFC 2822 format
+                "%Y-%m-%dT%H:%M:%S%z",       # ISO format with timezone
+                "%Y-%m-%d %H:%M:%S",         # Simple format
+                "%a, %d %b %Y %H:%M:%S GMT", # GMT format
+                "%a, %d %b %Y %H:%M:%S"      # Without timezone
+            ]
+            for fmt in formats:
+                try:
+                    dt = datetime.strptime(published_raw, fmt)
+                    if dt.tzinfo is None:
+                        dt = dt.replace(tzinfo=timezone.utc)
+                    # Return as ISO string for JSON serialization
+                    return dt.astimezone(timezone.utc).isoformat()
+                except ValueError:
+                    continue
+            # Si no coincide con ningún formato, mostrar el string para debug
+            print(f"DEBUG - No format matched for: '{published_raw}'")
+    
+    # Try published_str (which is actually published_parsed - struct_time)
+    if published_str and hasattr(published_str, 'tm_year'):
+        ts = time.mktime(published_str)
+        dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+        return dt.isoformat()  # Return as ISO string for JSON serialization
+    
     return None
-        
-from datetime import datetime, timezone
-
-
-
 
 
 def guess_category(title: str, summary_text: str) -> str:
@@ -155,17 +210,18 @@ def normalize_entry(raw: Dict[str, Any]) -> Dict[str, Any]:
     """
 
     # hash for dedup
-    hash = compute_hash(raw.get("source", ""), raw.get("link", ""), raw.get("title", ""))
+    hash = compute_hash(raw.get("source", ""), raw.get("url", ""), raw.get("title", ""))
 
+    summary_raw = clean_text(raw.get("summary_raw", ""))
 
     normalized = {
-        "id": hash,
+        "hash": hash,
         "source": raw.get("source", "").strip(),
-        "url": raw.get("link", "").strip(),
+        "url": raw.get("url", "").strip(),
         "title": raw.get("title", "").strip(),
-        "summary": raw.get("summary", "").strip(),
-        "published": to_datetime_utc(published_raw = raw.get("published"), published_str = raw.get("published_parsed")),
-        "category": guess_category(raw.get("title", ""), raw.get("summary", "")),
+        "summary": summary_raw,
+        "published": to_datetime_utc(published_raw = raw.get("published_raw"), published_str = raw.get("published_parsed")),
+        "category": guess_category(raw.get("title", ""), summary_raw),
         
     }
     return normalized
@@ -178,7 +234,7 @@ def normalize_many(raw_entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     out = []
     for entry in raw_entries:
         try:
-            if not entry.get("link") or not entry.get("title"): # DO NOT ALTER THIS LINE
+            if not entry.get("url") or not entry.get("title"): # DO NOT ALTER THIS LINE
                 continue
             normalized = normalize_entry(entry)
             out.append(normalized)
