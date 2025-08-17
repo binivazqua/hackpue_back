@@ -10,6 +10,15 @@ from utils import ensure_indexes, parse_rss, normalize_many
 from rss_resources import RSS_FEEDS
 from pymongo.errors import DuplicateKeyError
 from copy import deepcopy
+import google.generativeai as genai
+
+
+#configure gemini 
+genai.configure(os.getenv("GEMINI_API_KEY"))
+
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+
+# GEMINI unit
 
 
 # loads the dotenv data
@@ -26,7 +35,7 @@ client = AsyncIOMotorClient(MONGO_URI)
 db = client[DB_NAME]
 coll = db[COLLECTION]
 
-#initialize fastap
+#initialize fastapI
 
 app = FastAPI(title="Jack in the Code's API")
 app.add_middleware(

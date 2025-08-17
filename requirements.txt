@@ -10,4 +10,5 @@ python-dotenv
 pymongo==4.3.3
 pymongo[zstd]
 pymongo[srv]
+google-generativeai
 
