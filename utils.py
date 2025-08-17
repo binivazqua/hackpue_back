@@ -72,7 +72,8 @@ def parse_rss(name: str, url: str) -> list[dict]:
                 "title": title,
                 "published_raw": published_str,
                 "published_parsed": published_parsed,
-                "summary_raw": summary
+                "summary_raw": summary,
+                "processed": False
             })
 
         return items
@@ -222,6 +223,7 @@ def normalize_entry(raw: Dict[str, Any]) -> Dict[str, Any]:
         "summary": summary_raw,
         "published": to_datetime_utc(published_raw = raw.get("published_raw"), published_str = raw.get("published_parsed")),
         "category": guess_category(raw.get("title", ""), summary_raw),
+        "processed": False
         
     }
     return normalized

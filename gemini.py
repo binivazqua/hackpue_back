@@ -1,24 +1,35 @@
 import google.generativeai as genai
 import json
+import os
+
+
+# Configure API key
+genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
 
 GEMINI_PROMPT_TO_JSON = """
-Eres un curador de seguridad digital para familias. ¡Lees un artículo sobre seguridad digital con los datos proporcionados, entre ellos el link completo, el cual puedes consultar!
-Primero, deberás traducir el artículo al español. Después de leerlo de manera atenta, pero no muy profunda, por favor:
-Devuelve SOLO JSON válido con este shape:
+Eres un curador de seguridad digital para familias. Lee los datos de un artículo de seguridad digital (incluyen link y summary). 
+Tu tarea: generar SOLO un JSON válido (sin explicaciones, sin texto extra) con este shape EXACTO:
+
 {
-  "digest_es": string,              // resumen claro y no alarmista para padres (3-5 líneas)
-  "kickstarters_es": [string,...],  // 3-5 preguntas breves para adolescentes
-  "activity_es": {                  // mini actividad lúdica para niños 7-11
+  "digest_es": string,              
+  "kickstarter_es": [string,...],   
+  "activity_es": {                  
     "titulo": string,
     "pasos": [string,...]
   },
   "risk_level": "bajo"|"medio"|"alto"
 }
-Criterios:
-- Si el artículo parece fraude/estafa → "phishing" ↔ tendencia a "medio/alto" según urgencia y alcance.
+
+Instrucciones:
+- "digest_es": traducción al español del campo "Summary".
+- "kickstarter_es": 3–5 preguntas breves para adolescentes.
+- "activity_es": una mini actividad creativa para familia (titulo + 2–4 pasos) EN ESPAÑOL!!!
+- "risk_level": evalúa el nivel de riesgo del artículo (fraude/estafa → "medio" o "alto").
 - Lenguaje empático, no técnico.
-- No inventes datos: si faltan detalles, di "según la nota".
+- No inventes datos: si faltan, usa "según la nota".
+- TODO debe estar en ESPAÑOL.
+- Devuelve SOLO JSON. No agregues prosa, comentarios, markdown ni texto antes o después.
 
 """
 
@@ -41,35 +52,56 @@ async def gemini_process_articles(item: dict, model_name: str) -> dict:
     published = item.get("published", "")
 
     content = f"""
-        Title: {title}
-        URL: {url}
-        Source: {source}
-        Summary: {summary}
-        Category: {category}
-        Published: {published}
+{GEMINI_PROMPT_TO_JSON}
+
+Artículo a procesar:
+Title: {title}
+URL: {url}
+Source: {source}
+Summary: {summary}
+Category: {category}
+Published: {published}
     """
 
-    model = genai.GeminiModel(model_name, temperature=0.5, max_output_tokens=256)
-
+    model = genai.GenerativeModel(model_name=model_name, generation_config=genai.GenerationConfig(
+        temperature=0.7,
+        max_output_tokens=1000,  # Increased for complex JSON
+        top_p=0.95,
+        top_k=40
+    ))
     # keep it simple
-    response = await model.generate_content(content)
+    response = model.generate_content(content)
 
     try:
-        output = json.loads(response.text)
-        output["digest_es"] = (output.get("digest_es", "")).strip()
-        output["kickstarter_es"] = (output.get("kickstarter_es")).strip()
-        output["activity_es"] = (output.get("activity_es")).strip()
+        # Clean response text (remove markdown if present)
+        response_text = response.text.strip()
+        if response_text.startswith("```json"):
+            response_text = response_text.replace("```json", "").replace("```", "").strip()
+        
+        output = json.loads(response_text)
+        
+        # Clean strings properly
+        if "digest_es" in output:
+            output["digest_es"] = str(output["digest_es"]).strip()
+        if "kickstarter_es" in output and isinstance(output["kickstarter_es"], list):
+            output["kickstarter_es"] = [str(item).strip() for item in output["kickstarter_es"]]
+        if "activity_es" in output and isinstance(output["activity_es"], dict):
+            # Don't strip dict, just validate it has the right structure
+            if "titulo" not in output["activity_es"] or "pasos" not in output["activity_es"]:
+                raise ValueError("Invalid activity_es structure")
 
-        # asignar un risk level
-        if output["risk_level"] not in ("bajo", "medio", "alto"):
+        # Validate risk level
+        if output.get("risk_level") not in ("bajo", "medio", "alto"):
             output["risk_level"] = "medio"
         
         return output
-    except Exception: 
+    except Exception as e: 
+        print(f"Error processing Gemini response: {e}")
+        print(f"Raw response: {response.text}")
         #fallback si no es un JSON DIGNO (lol)
         return {
             "digest_es": f"Resumen: {title}. (Ver fuente: {url})",
-            "kickstarters_es": ["¿Qué señales te harían dudar?", "¿Con quién pedirías ayuda?"],
+            "kickstarter_es": ["¿Qué señales te harían dudar?", "¿Con quién pedirías ayuda?"],
             "activity_es": {"titulo":"Detectives anti-phishing","pasos":["Ver remitente","Revisar enlace","No compartir claves"]},
             "risk_level":"medio"
         }

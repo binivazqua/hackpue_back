@@ -9,20 +9,23 @@ from dotenv import load_dotenv
 from utils import ensure_indexes, parse_rss, normalize_many
 from rss_resources import RSS_FEEDS
 from pymongo.errors import DuplicateKeyError
+from bson.objectid import ObjectId
 from copy import deepcopy
 import google.generativeai as genai
 from pydantic import BaseModel
-
-
-#configure gemini 
-#genai.configure(os.getenv("GEMINI_API_KEY"))
-
-#GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
-
-
+from gemini import gemini_process_articles
 
 # loads the dotenv data
 load_dotenv()
+
+#configure gemini 
+genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+
+GEMINI_MODEL = os.getenv("GEMINI_MODEL")
+
+
+
+
 
 # INITIALIZE DB VARIABLES (from dotenv)
 
@@ -211,4 +214,27 @@ async def process_article_auto(item_id: str, _auth=Depends(require_api_key)):
 
     o_id = ObjectId(item_id)        
 
-    item = await coll.find_one({"_id": o_id}, {"title":1,"url":1,"summary":1,"category":1})
+    # que esperamos ver en mongo 
+    item = await coll.find_one({"_id": o_id}, {"title":1,"url":1,"summary":1,"category":1, "processed":1})
+
+    if not item:
+        raise HTTPException(status_code=404, detail="ITEM NOT FOUND !!!")
+
+    # Call GEMINI API
+    gemini_response = await gemini_process_articles(item, model_name=GEMINI_MODEL)
+
+    # update MONGO
+    res = await coll.update_one(
+        {"_id": o_id, "processed": False}, 
+        {"$set": {
+            "processed": True, 
+            "digest_es": gemini_response["digest_es"] or "", 
+            "kickstarter_es": gemini_response["kickstarter_es"] or "", 
+            "activity_es": gemini_response["activity_es"] or "", 
+            "risk_level": gemini_response["risk_level"] or ""
+        }})
+
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="COULD NOT MODIFY ITEM. IT HAS BEEN ALREADY PROCESSED!!!")
+
+    return {"ok": True, "id": item_id}
