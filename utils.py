@@ -125,9 +125,9 @@ def compute_hash(source: dict, url: str, title: str) -> str:
 
 def to_datetime_utc(published_raw, published_str):
     # Debug: agregar logging temporal
-    print(f"DEBUG - published_raw: {published_raw} (type: {type(published_raw)})")
-    print(f"DEBUG - published_str: {published_str} (type: {type(published_str)})")
-    
+    # print(f"DEBUG - published_raw: {published_raw} (type: {type(published_raw)})")
+    # print(f"DEBUG - published_str: {published_str} (type: {type(published_str)})")
+
     if published_raw:
         # If it's a struct_time (from feedparser)
         if hasattr(published_raw, 'tm_year'):
